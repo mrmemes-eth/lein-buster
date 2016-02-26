@@ -1,4 +1,4 @@
-(defproject lein-buster "0.1.1-SNAPSHOT"
+(defproject lein-buster "0.1.1"
   :description "Generate fingerprinted files from your static asset that are suitable for use in browser cache-busting."
   :url "https://www.github.com/voxdolo/lein-buster"
   :license {:name "Eclipse Public License"
