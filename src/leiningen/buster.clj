@@ -46,6 +46,7 @@
 (defn write-fingerprinted-file
   "Copies the provided file to its fingerprinted equivalent path"
   [file]
+  (lmain/info (format "[buster]: writing %s." (asset-name file)))
   (->> file fingerprinted-file (io/copy file)))
 
 (defn- manifest-map
@@ -77,12 +78,16 @@
 (defn buster
   "Run buster on a project. This doubles as the standalone task entrypoint and the entrypoint for the compile hook."
   [{:keys [buster] :as project}]
-  (let [project-path (partial io/file (:root project))]
-    (bust-paths! (project-path (:manifest buster)) (map project-path (distinct (:files buster))))))
+  (if (and (seq (:files buster)) (:manifest buster))
+    (let [project-path (partial io/file (:root project))]
+      (bust-paths! (project-path (:manifest buster)) (map project-path (distinct (:files buster)))))
+    (doseq [config-key [:files :manifest]]
+      (when (empty? (get buster config-key))
+        (lmain/warn (format "[buster]: Missing required configuration: %s." config-key))))))
 
 (defn- compile-hook
   "Runs buster after compilation completes."
-  [f {:keys [buster] :as project} & args]
+  [f project & args]
   (apply f project args)
   (buster project))
 
