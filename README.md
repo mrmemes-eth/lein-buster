@@ -104,6 +104,26 @@ Subsequent use in a Selmer template looks like this:
 If you're using a different templating engine or a completely different
 approach, please add how you're integrating `lein-buster` to the wiki!
 
+## Plain HTML Integrating
+
+If you have the simplest webserver and don't want to render html / do templates,
+buster can replace asset links in the plain html to be served as-is:
+
+```clojure
+;; assume "resources/public/index.html" file has content
+;; <script src="/js/compiled/app.js"></script>
+;; then add exact matcher for the file
+:buster {:files {"resources/public/js/compiled/app.js" "/js/compiled/app.js"}
+         :manifest "resources/manifest.json"
+         :replace-paths ["resources/public/index.html"]}
+```
+
+After run the html will look like these (digested link):
+
+```html
+<script src="/js/compiled/app-7383593c86.js"></script>
+```
+
 ## License
 
 Copyright © 2016 Stephen Caudill

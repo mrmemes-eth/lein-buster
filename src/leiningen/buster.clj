@@ -7,6 +7,16 @@
             [leiningen.compile :as lcompile]
             [robert.hooke :as hooke]))
 
+(defn- with-replacements
+  "Provide compatibility of :files given just as vector
+  e.g. :files [\"resources/public/js/compiled/app.jsy\"]
+  means file is references in html as \"resources/public/js/compiled/app.js\"
+  and will be replaces to \"resources/public/js/compiled/app-DIGEST.js\""
+  [v]
+  (if (sequential? v)
+    (->> v distinct (map (fn [i] [i i])))
+    (vec v)))
+
 (defn- name-parts
   [file]
   (-> file .getName (string/split #"\.")))
@@ -61,26 +71,49 @@
   The updating portion of this is to work in harmony with external tools, such as `gulp-rev', in additon
   to the fact that this function is called iteratively on each file."
   [manifest file]
-  (let [mappings (assoc (manifest-map manifest)
-                        (.getName file) (asset-name file))]
-    (spit manifest (chesh/generate-string mappings))))
+  (let [asset (asset-name file)
+        mappings (assoc (manifest-map manifest)
+                        (.getName file) asset)]
+    (spit manifest (chesh/generate-string mappings))
+    asset))
 
 (defn bust-paths!
   "Create fingerprinted files for provided resource paths suitable for use in browser cache-busting.
-  e.g. `(bust-paths! \"resources/rev-manifest.json\" [\"resources/public/foo.css\"])'
-  would create a \"resources/foo-acbd18db4c.css\" file."
+  e.g. `(bust-paths! \"resources/rev-manifest.json\" [\"resources/public/foo.css\" \"/css/foo.css\"])'
+  would create a \"resources/foo-acbd18db4c.css\" file.
+  Returns [\"/css/foo.css\" \"foo.css\" \"foo-DIGEST.css\"]"
   [manifest files]
-  (doseq [file files]
-    (if (.exists file)
-      (doto file write-fingerprinted-file ((partial update-manifest manifest)))
-      (lmain/warn (format "[buster]: %s is not a valid resource." file)))))
+  (map (fn [[file match]]
+         (if (.exists file)
+           [match (.getName file)  (update-manifest manifest (doto file write-fingerprinted-file))]
+           (lmain/warn (format "[buster]: %s is not a valid resource." file))))
+       files))
+
+(defn replace-paths!
+  "Replaces some static path ot js/css with a digested version
+  e.g. (replace-paths! [\"resources/public/index.html\"] {\"app.js\" \"app-7383593c86.js\"})"
+  [files replace-paths]
+  (doseq [replace-path replace-paths]
+    (loop [[head & tail] files content (slurp replace-path)]
+      (if-let [[match file-name asset] head]
+        (let [replacement (string/replace match file-name asset)
+              old-version-file-match (string/replace file-name "." "[-\\w]*\\.")
+              match-incl-older (re-pattern (string/replace match file-name old-version-file-match))]
+          (lmain/info "[buster]: patching" replace-path ":" match-incl-older "=>" replacement)
+          (recur tail (string/replace content match-incl-older replacement)))
+        (spit replace-path content)))))
 
 (defn buster
   "Run buster on a project. This doubles as the standalone task entrypoint and the entrypoint for the compile hook."
   [{:keys [buster] :as project}]
   (if (and (seq (:files buster)) (:manifest buster))
-    (let [project-path (partial io/file (:root project))]
-      (bust-paths! (project-path (:manifest buster)) (map project-path (distinct (:files buster)))))
+    (let [project-path (partial io/file (:root project))
+          {:keys [files manifest replace-paths]} buster
+          files (->> files
+                     with-replacements
+                     (map (fn [[k v]] [(project-path k) v])))]
+      (replace-paths! (bust-paths! (project-path manifest) files)
+                      (seq replace-paths)))
     (doseq [config-key [:files :manifest]]
       (when (empty? (get buster config-key))
         (lmain/warn (format "[buster]: Missing required configuration: %s." config-key))))))
